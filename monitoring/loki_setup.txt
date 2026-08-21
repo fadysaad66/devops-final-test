@@ -1,0 +1,154 @@
+Grafana Loki Monitoring Setup
+=============================
+
+Project: DevOps Intern Final Assessment
+Purpose: Local log collection and verification using Grafana Loki.
+
+1. Loki Setup
+-------------
+
+Grafana Loki was started locally using Docker.
+
+Docker network:
+
+    docker network create loki-network
+
+Loki container:
+
+    docker run -d \
+      --name loki \
+      --network loki-network \
+      -p 3100:3100 \
+      grafana/loki:latest \
+      -config.file=/etc/loki/local-config.yaml
+
+Verify Loki is running:
+
+    docker ps
+
+Loki API endpoint:
+
+    http://localhost:3100
+
+
+2. Grafana Alloy Log Forwarding
+-------------------------------
+
+Grafana Alloy was configured to discover Docker containers through the
+Docker socket and forward container logs to Loki.
+
+Alloy configuration file:
+
+    monitoring/config.alloy
+
+Alloy was started using:
+
+    MSYS_NO_PATHCONV=1 docker run -d \
+      --name alloy \
+      --network loki-network \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v "$(pwd)/monitoring/config.alloy://etc/alloy/config.alloy" \
+      grafana/alloy:latest \
+      run //etc/alloy/config.alloy
+
+Alloy was verified as running using:
+
+    docker ps
+
+and:
+
+    docker logs alloy
+
+
+3. Docker Log Test
+------------------
+
+A test Docker container was created to continuously generate logs:
+
+    docker run -d \
+      --name devops-log-test \
+      alpine \
+      sh -c 'while true; do echo "Hello, DevOps! Loki test log"; sleep 5; done'
+
+The generated container logs were verified using:
+
+    docker logs devops-log-test --tail 10
+
+
+4. Loki API Verification
+-------------------------
+
+A test log was also sent directly to Loki using the Loki HTTP push API.
+
+Example:
+
+    curl -X POST "http://localhost:3100/loki/api/v1/push" \
+      -H "Content-Type: application/json" \
+      --data-raw "{\"streams\":[{\"stream\":{\"job\":\"devops-test\",\"app\":\"hello-devops\"},\"values\":[[\"TIMESTAMP\",\"Hello, DevOps! Loki test log\"]]}]}"
+
+A successful Loki push returns HTTP status 204.
+
+The stored log can be queried with:
+
+    curl -G -s "http://localhost:3100/loki/api/v1/query_range" \
+      --data-urlencode 'query={job="devops-test"}' \
+      --data-urlencode 'since=10m'
+
+
+5. Verification
+---------------
+
+Loki was successfully started and its HTTP API was accessible on port 3100.
+
+The Loki push API accepted the test log.
+
+The test log was queried using the Loki query_range API.
+
+Grafana Alloy was successfully started and loaded the Docker discovery,
+Docker log source, and Loki write components.
+
+
+6. Useful Commands
+------------------
+
+Check Loki:
+
+    docker ps --filter name=loki
+
+View Loki logs:
+
+    docker logs loki
+
+Check Alloy:
+
+    docker ps --filter name=alloy
+
+View Alloy logs:
+
+    docker logs alloy
+
+Check Docker test logs:
+
+    docker logs devops-log-test --tail 10
+
+Query Loki:
+
+    curl -G -s "http://localhost:3100/loki/api/v1/query_range" \
+      --data-urlencode 'query={job="devops-test"}' \
+      --data-urlencode 'since=10m'
+
+
+7. Cleanup
+-----------
+
+The temporary test container can be removed with:
+
+    docker rm -f devops-log-test
+
+Alloy can be stopped and removed with:
+
+    docker rm -f alloy
+
+Loki can be stopped and removed with:
+
+    docker rm -f loki
